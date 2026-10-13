@@ -1,0 +1,1074 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ECG 心电图识别训练 · 护理版</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23D63031'/%3E%3Cpath d='M4 18h5l3-8 5 13 4-11 3 6h4' fill='none' stroke='%23fff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+/* ===== 基础与设计变量 ===== */
+:root{
+  --bg:#F1F5F9; --card:#FFFFFF; --ink:#20303F; --sub:#5D7184;
+  --line:#E3EAF1; --ecg:#D63031; --ecg-dark:#A82324; --ok:#1E9E5F;
+  --warn:#C77B1A; --monitor:#0E1E2B; --monitor-soft:#16303F; --wave:#3DDC84;
+  --grid-lite:#E7EDF4; --grid-dark:#C9D5E2;
+  --radius:14px; --shadow:0 2px 10px rgba(32,48,63,.06);
+  --font:"Segoe UI","Microsoft YaHei","PingFang SC","Noto Sans SC","Helvetica Neue",Arial,sans-serif;
+  --mono:"Consolas","Cascadia Mono","Courier New",monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:auto}
+body{
+  font-family:var(--font); background:var(--bg); color:var(--ink);
+  min-height:100vh; -webkit-font-smoothing:antialiased; line-height:1.6;
+}
+button{font-family:inherit; cursor:pointer; border:none; background:none; color:inherit}
+.hidden{display:none !important}
+
+/* ===== 顶栏：监护条 ===== */
+.monitor{
+  background:linear-gradient(180deg,var(--monitor) 0%,var(--monitor-soft) 100%);
+  color:#fff; overflow:hidden;
+}
+.monitor-inner{
+  max-width:880px; margin:0 auto; padding:14px 20px 12px;
+  display:flex; align-items:center; justify-content:space-between; gap:16px;
+}
+.brand{display:flex; align-items:center; gap:10px; font-size:17px; font-weight:700; letter-spacing:.3px; white-space:nowrap}
+.brand .logo{flex:none}
+.brand .sub{font-size:12px; font-weight:600; color:var(--wave); background:rgba(61,220,132,.12);
+  border:1px solid rgba(61,220,132,.35); border-radius:999px; padding:1px 9px; margin-left:6px; letter-spacing:1px}
+.monitor-wave{
+  flex:1; max-width:340px; height:44px; position:relative; overflow:hidden;
+  border-radius:8px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.08);
+}
+.monitor-wave svg{position:absolute; inset:0; width:100%; height:100%}
+.scan-line{
+  position:absolute; top:0; bottom:0; width:26px; left:0;
+  background:linear-gradient(90deg,rgba(61,220,132,0),rgba(61,220,132,.28) 50%,rgba(61,220,132,0));
+  animation:scan 3.6s linear infinite;
+}
+@keyframes scan{0%{transform:translateX(-30px)}100%{transform:translateX(340px)}}
+
+/* ===== 模式导航 ===== */
+.mode-nav{
+  max-width:880px; margin:18px auto 0; padding:0 20px;
+  display:grid; grid-template-columns:repeat(4,1fr); gap:10px;
+}
+.mode-btn{
+  display:flex; align-items:center; justify-content:center; gap:8px;
+  min-height:44px;
+  background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+  padding:12px 6px; font-size:14px; font-weight:600; color:var(--sub);
+  box-shadow:var(--shadow); transition:all .18s ease;
+}
+.mode-btn svg{flex:none}
+.mode-btn:hover{border-color:#C9D5E2; color:var(--ink); transform:translateY(-1px)}
+.mode-btn.active{
+  background:var(--ink); border-color:var(--ink); color:#fff;
+}
+.mode-btn.active svg{stroke:#fff}
+.mode-btn .badge{
+  min-width:18px; height:18px; border-radius:999px; font-size:11px; font-weight:700;
+  background:var(--ecg); color:#fff; display:inline-flex; align-items:center; justify-content:center; padding:0 5px;
+}
+.mode-btn:not(.active) .badge{background:var(--ecg)}
+
+/* ===== 主容器 ===== */
+main{max-width:880px; margin:0 auto; padding:16px 20px 40px}
+
+/* ===== 卡片 ===== */
+.card{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow)}
+.sec-title{font-size:13px; font-weight:700; color:var(--sub); letter-spacing:1.5px; margin:20px 0 10px}
+
+/* ===== 练习 / 考核 视图 ===== */
+.quiz-head{display:flex; align-items:center; gap:12px; margin-bottom:12px}
+.progress-track{flex:1; height:8px; background:#E3EAF1; border-radius:99px; overflow:hidden}
+.progress-bar{height:100%; width:0%; background:linear-gradient(90deg,var(--ecg),#E8734F); border-radius:99px; transition:width .3s ease}
+.quiz-meta{display:flex; gap:8px; align-items:center; font-size:12.5px; color:var(--sub); white-space:nowrap}
+.tag{font-size:12.5px; font-weight:700; padding:2px 8px; border-radius:99px; border:1px solid var(--line); background:#F7FAFD; color:var(--sub)}
+.tag.wave{color:var(--ecg-dark); border-color:#F2C4C4; background:#FCF1F1}
+.tag.case{color:#2B6CB0; border-color:#C4DCF2; background:#F0F7FD}
+.tag.diff{color:#5B6B7C}
+
+.ekg-card{padding:0; overflow:hidden; position:relative; background:#FDFEFF}
+.ekg-card .ekg-label{
+  position:absolute; top:10px; left:12px; z-index:2;
+  font-size:12.5px; font-weight:700; color:var(--sub); letter-spacing:1px;
+  background:rgba(255,255,255,.86); padding:3px 9px; border-radius:6px; border:1px solid var(--line);
+}
+.ekg-card svg{display:block; width:100%; height:auto}
+
+.prompt-card{margin-top:12px; padding:14px 16px; font-size:15px}
+.prompt-card .prompt-label{font-size:12.5px; font-weight:700; color:var(--ecg-dark); letter-spacing:1px; margin-bottom:6px}
+
+.options-card{margin-top:12px; padding:14px}
+.option{
+  display:flex; align-items:flex-start; gap:10px; width:100%; text-align:left;
+  border:1.5px solid var(--line); border-radius:10px; padding:11px 12px; margin-bottom:9px;
+  font-size:14.5px; color:var(--ink); background:#fff; transition:all .15s ease; line-height:1.5;
+}
+.option:last-child{margin-bottom:0}
+.option:hover:not(:disabled){border-color:#9FB4C9; background:#F8FAFD}
+.option .opt-key{
+  flex:none; width:24px; height:24px; border-radius:7px; background:#EEF3F8; color:var(--sub);
+  font-size:13px; font-weight:700; display:flex; align-items:center; justify-content:center; margin-top:1px;
+}
+.option.selected{border-color:var(--ink); background:#F2F6FA}
+.option.selected .opt-key{background:var(--ink); color:#fff}
+.option.correct{border-color:var(--ok); background:#F0FAF4}
+.option.correct .opt-key{background:var(--ok); color:#fff}
+.option.wrong{border-color:var(--ecg); background:#FDF1F1}
+.option.wrong .opt-key{background:var(--ecg); color:#fff}
+.option:disabled{cursor:default}
+
+.feedback{margin-top:12px; border-radius:var(--radius); padding:14px 16px; border:1px solid}
+.feedback.ok{border-color:#BFE3CE; background:#F0FAF4}
+.feedback.no{border-color:#F2C4C4; background:#FDF1F1}
+.fb-head{display:flex; align-items:center; gap:8px; font-size:15px; font-weight:700; margin-bottom:8px}
+.fb-head .fb-ico{width:20px; height:20px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex:none}
+.feedback.ok .fb-ico{background:var(--ok); color:#fff}
+.feedback.no .fb-ico{background:var(--ecg); color:#fff}
+.fb-explain{font-size:14px; color:#33414F}
+.fb-explain .hl{font-weight:700; color:var(--ecg-dark)}
+.fb-note{margin-top:8px; font-size:13px; color:#54677A; border-top:1px dashed #D6E0EA; padding-top:8px}
+.fb-note b{color:var(--ink)}
+
+.quiz-actions{margin-top:14px; display:flex; justify-content:flex-end; gap:10px}
+.btn{
+  display:inline-flex; align-items:center; justify-content:center; gap:8px;
+  min-height:44px;
+  padding:11px 22px; border-radius:10px; font-size:14.5px; font-weight:700;
+  transition:all .15s ease;
+}
+.btn-primary{background:var(--ink); color:#fff}
+.btn-primary:hover{background:#2B3D4F}
+.btn-primary:disabled{opacity:.4; cursor:default}
+.btn-ghost{border:1.5px solid var(--line); color:var(--sub); background:#fff}
+.btn-ghost:hover{border-color:#9FB4C9; color:var(--ink)}
+.btn-danger{background:var(--ecg); color:#fff}
+.btn-danger:hover{background:var(--ecg-dark)}
+.btn-ok{background:var(--ok); color:#fff}
+.btn-ok:hover{background:#187C4B}
+
+/* ===== 考核 ===== */
+.exam-bar{
+  display:flex; align-items:center; gap:12px; background:var(--card); border:1px solid var(--line);
+  border-radius:var(--radius); padding:12px 16px; margin-bottom:14px; box-shadow:var(--shadow);
+}
+.exam-timer{
+  font-family:var(--mono); font-size:22px; font-weight:700; color:var(--ink); letter-spacing:1px;
+  padding:2px 12px; border-radius:8px; background:#F2F6FA; border:1px solid var(--line);
+}
+.exam-timer.low{color:#fff; background:var(--ecg); border-color:var(--ecg)}
+.exam-info{flex:1; font-size:13px; color:var(--sub)}
+.exam-info b{color:var(--ink); font-size:15px}
+.flag-btn{
+  border:1.5px solid var(--line); border-radius:8px; padding:6px 12px; font-size:13px; font-weight:600; color:var(--sub);
+}
+.flag-btn.on{background:#FFF6E9; border-color:#EBCB8F; color:var(--warn)}
+
+/* ===== 考核报告 ===== */
+.report-hero{
+  display:flex; align-items:center; gap:18px; padding:20px; flex-wrap:wrap;
+}
+.report-score{
+  width:104px; height:104px; border-radius:50%; flex:none; position:relative;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  background:conic-gradient(var(--ecg) calc(var(--p)*1%), #E7EDF4 0);
+}
+.report-score::before{content:""; position:absolute; inset:9px; background:#fff; border-radius:50%}
+.report-score .num{position:relative; font-size:30px; font-weight:800; color:var(--ink); font-family:var(--mono)}
+.report-score .lbl{position:relative; font-size:11px; color:var(--sub); letter-spacing:1px}
+.report-meta{flex:1; min-width:180px}
+.report-meta .row{display:flex; justify-content:space-between; font-size:13.5px; padding:5px 0; border-bottom:1px dashed #E3EAF1; color:var(--sub)}
+.report-meta .row:last-child{border:none}
+.report-meta .row b{color:var(--ink)}
+.report-verdict{font-size:15px; font-weight:700; margin-top:6px}
+.verdict-pass{color:var(--ok)} .verdict-fail{color:var(--ecg-dark)} .verdict-mid{color:var(--warn)}
+.report-list{margin-top:14px; padding:4px 16px 14px}
+.r-item{display:flex; gap:12px; align-items:flex-start; padding:11px 0; border-bottom:1px solid #EEF2F7}
+.r-item:last-child{border:none}
+.r-mark{flex:none; width:26px; height:26px; border-radius:8px; font-size:13px; font-weight:800; display:flex; align-items:center; justify-content:center; margin-top:1px}
+.r-mark.ok{background:#F0FAF4; color:var(--ok)}
+.r-mark.no{background:#FDF1F1; color:var(--ecg)}
+.r-body{flex:1; font-size:13.5px}
+.r-body .rhythm{font-weight:700; color:var(--ink)}
+.r-body .ans{color:var(--sub); font-size:12.5px; margin-top:2px}
+.r-body .ans b.ok{color:var(--ok)} .r-body .ans b.no{color:var(--ecg-dark)}
+
+/* ===== 错题本 ===== */
+.empty-state{
+  text-align:center; padding:46px 20px; color:var(--sub);
+}
+.empty-state .ico{width:64px; height:64px; margin:0 auto 14px; opacity:.35}
+.empty-state p{font-size:14.5px}
+.wrong-list{padding:4px 16px 14px}
+.w-item{display:flex; gap:12px; align-items:flex-start; padding:12px 0; border-bottom:1px solid #EEF2F7}
+.w-item:last-child{border:none}
+.w-info{flex:1}
+.w-info .rhythm{font-weight:700; font-size:14.5px}
+.w-info .qtype{font-size:12px; color:var(--sub); margin-top:1px}
+.w-act{display:flex; gap:6px}
+
+/* ===== 统计 ===== */
+.stats-grid{display:grid; grid-template-columns:repeat(4,1fr); gap:10px}
+.stat-cell{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:14px 12px; text-align:center; box-shadow:var(--shadow)}
+.stat-cell .v{font-size:26px; font-weight:800; font-family:var(--mono); color:var(--ink); line-height:1.2}
+.stat-cell .v small{font-size:15px; color:var(--sub); font-weight:600}
+.stat-cell .k{font-size:12px; color:var(--sub); margin-top:3px}
+.rhythm-stats{margin-top:14px; padding:16px; }
+.rs-row{display:flex; align-items:center; gap:10px; margin-bottom:9px; font-size:13px}
+.rs-name{width:110px; flex:none; color:var(--ink); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.rs-track{flex:1; height:10px; background:#EDF2F7; border-radius:99px; overflow:hidden}
+.rs-bar{height:100%; width:0%; border-radius:99px; background:linear-gradient(90deg,#D63031,#E8734F); transition:width .4s ease}
+.rs-num{width:64px; flex:none; text-align:right; font-family:var(--mono); font-size:12.5px; color:var(--sub)}
+.exam-history{margin-top:14px; padding:4px 16px 14px}
+.h-row{display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid #EEF2F7; font-size:13.5px}
+.h-row:last-child{border:none}
+.h-date{color:var(--sub); width:110px; flex:none; font-size:12.5px}
+.h-score{font-family:var(--mono); font-weight:700; width:56px; flex:none}
+.h-correct{color:var(--sub); flex:1; font-size:12.5px}
+.h-bar{width:90px; height:8px; background:#EDF2F7; border-radius:99px; overflow:hidden; flex:none}
+.h-bar i{display:block; height:100%; background:var(--ok); border-radius:99px}
+
+/* ===== 底部 ===== */
+footer{
+  max-width:880px; margin:0 auto; padding:6px 20px 34px; color:#7C8CA0; font-size:12px; line-height:1.7;
+}
+footer .disclaimer{
+  background:#F7FAFD; border:1px dashed #D6E0EA; border-radius:10px; padding:10px 14px; margin-bottom:12px;
+}
+footer b{color:#54677A}
+
+/* ===== 响应式 ===== */
+@media (max-width:640px){
+  .monitor-inner{padding:12px 14px 10px}
+  .brand{font-size:15px}
+  .brand .sub{display:none}
+  .monitor-wave{max-width:150px; height:38px}
+  .mode-nav{padding:0 14px; gap:8px; grid-template-columns:repeat(2,1fr)}
+  main{padding:14px 14px 32px}
+  .mode-btn{padding:11px 4px; font-size:13px}
+  .quiz-actions{flex-direction:column}
+  .quiz-actions .btn{width:100%}
+  .stats-grid{grid-template-columns:repeat(2,1fr)}
+  .exam-bar{flex-wrap:wrap}
+  .exam-info{flex:1 1 100%; order:3}
+  .rs-name{width:92px}
+  .rs-num{width:56px}
+  .h-date{width:90px}
+  .h-bar{width:60px}
+  .report-hero{gap:14px}
+  .report-score{width:92px; height:92px}
+  .report-score .num{font-size:26px}
+}
+</style>
+</head>
+<body>
+
+<header class="monitor">
+  <div class="monitor-inner">
+    <div class="brand">
+      <svg class="logo" width="30" height="30" viewBox="0 0 32 32" aria-hidden="true">
+        <rect width="32" height="32" rx="7" fill="#D63031"/>
+        <path d="M4 18h5l3-8 5 13 4-11 3 6h4" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      ECG 心电图识别训练<span class="sub">护理版</span>
+    </div>
+    <div class="monitor-wave" id="monitorWave" aria-hidden="true"></div>
+  </div>
+</header>
+
+<nav class="mode-nav" id="modeNav">
+  <button class="mode-btn active" data-mode="quiz">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2-6 4 12 3-9 2 3h3"/></svg>
+    练习
+  </button>
+  <button class="mode-btn" data-mode="exam">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+    考核
+  </button>
+  <button class="mode-btn" data-mode="wrong">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h8a2 2 0 0 1 2 2v14l-6-3-6 3V6a2 2 0 0 1 2-2z"/></svg>
+    错题<span class="badge hidden" id="wrongBadge">0</span>
+  </button>
+  <button class="mode-btn" data-mode="stats">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
+    统计
+  </button>
+</nav>
+
+<main id="app">
+
+  <!-- ===== 视图：练习 ===== -->
+  <section id="view-quiz" class="view">
+    <div class="quiz-head">
+      <div class="progress-track"><div class="progress-bar" id="quizBar"></div></div>
+      <div class="quiz-meta">
+        <span id="quizCount" class="tag">1 / 20</span>
+        <span id="quizType" class="tag wave">波形识别</span>
+        <span id="quizDiff" class="tag diff">基础</span>
+      </div>
+    </div>
+    <div class="card ekg-card" id="ekgCard">
+      <div class="ekg-label" id="ekgLabel">ECG · 6 秒</div>
+      <svg id="ekgSvg" role="img" aria-label="心电图波形"></svg>
+    </div>
+    <div class="card prompt-card">
+      <div class="prompt-label">题干</div>
+      <p id="quizPrompt"></p>
+    </div>
+    <div class="card options-card">
+      <div id="quizOptions"></div>
+    </div>
+    <div class="feedback hidden" id="quizFeedback">
+      <div class="fb-head">
+        <span class="fb-ico" id="fbIco"></span>
+        <span id="fbTitle"></span>
+      </div>
+      <div class="fb-explain" id="fbExplain"></div>
+      <div class="fb-note" id="fbNote"></div>
+    </div>
+    <div class="quiz-actions">
+      <button class="btn btn-ghost hidden" id="btnReview">查看错题</button>
+      <button class="btn btn-primary" id="btnNext">下一题</button>
+    </div>
+  </section>
+
+  <!-- ===== 视图：考核 ===== -->
+  <section id="view-exam" class="view hidden">
+    <div class="exam-bar">
+      <div class="exam-timer" id="examTimer">--:--</div>
+      <div class="exam-info" id="examInfo">第 <b id="examCount">1</b> / <span id="examTotal">10</span> 题 · 已作答 <b id="examDone">0</b></div>
+      <button class="flag-btn" id="btnFlag">标记待定</button>
+      <button class="btn btn-danger" id="btnSubmit">交卷</button>
+    </div>
+    <div id="examBody">
+      <div class="card ekg-card" id="examEkgCard">
+        <div class="ekg-label" id="examEkgLabel">ECG · 6 秒</div>
+        <svg id="examEkgSvg" role="img" aria-label="心电图波形"></svg>
+      </div>
+      <div class="card prompt-card">
+        <div class="prompt-label">题干</div>
+        <p id="examPrompt"></p>
+      </div>
+      <div class="card options-card">
+        <div id="examOptions"></div>
+      </div>
+      <div class="quiz-actions">
+        <button class="btn btn-ghost" id="btnPrevExam">上一题</button>
+        <button class="btn btn-primary" id="btnNextExam">下一题</button>
+      </div>
+    </div>
+    <div id="examReport" class="hidden">
+      <div class="card report-hero" id="reportHero"></div>
+      <div class="card report-list" id="reportList"></div>
+      <div class="quiz-actions">
+        <button class="btn btn-primary" id="btnRetryExam">再考一次</button>
+        <button class="btn btn-ghost" id="btnBackQuiz">返回练习</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 视图：错题 ===== -->
+  <section id="view-wrong" class="view hidden">
+    <div class="card">
+      <div class="wrong-list" id="wrongList"></div>
+      <div class="empty-state hidden" id="wrongEmpty">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>
+        <p>错题本是空的。<br>练习中答错的题会自动收录到这里。</p>
+      </div>
+    </div>
+    <div class="quiz-actions" id="wrongActions">
+      <button class="btn btn-ghost hidden" id="btnReWrong">重练错题</button>
+      <button class="btn btn-danger hidden" id="btnClearWrong">清空错题</button>
+    </div>
+  </section>
+
+  <!-- ===== 视图：统计 ===== -->
+  <section id="view-stats" class="view hidden">
+    <div class="sec-title">累计数据</div>
+    <div class="stats-grid" id="statsGrid"></div>
+    <div class="sec-title">各心律掌握度 <span style="font-weight:400;letter-spacing:0">（按作答量排序）</span></div>
+    <div class="card rhythm-stats" id="rhythmStats"></div>
+    <div class="sec-title">最近考核</div>
+    <div class="card exam-history" id="examHistory"></div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="disclaimer">
+    <b>使用说明：</b>本工具为护理人员心电图识别训练用。波形为示意性 SVG 绘制（按 25mm/s、10mm/mV 标准比例示意），用于识别特征训练，<b>不构成真实心电图诊断，不得用于临床诊断或治疗决策</b>。临床心电图判读请以设备原始记录与医生诊断为准。
+  </div>
+  ECG_Quiz · 护理版 · 数据仅保存在本机浏览器
+</footer>
+
+<script>
+// ===== 状态与存储 =====
+var DB_KEY='ecg_quiz_v1';
+var store={stats:{total:0,correct:0,byRhythm:{}},wrong:[],history:[]};
+try{ var _s=JSON.parse(localStorage.getItem(DB_KEY)); if(_s&&_s.stats) store=_s; }catch(e){}
+function save(){ try{ localStorage.setItem(DB_KEY,JSON.stringify(store)); }catch(e){} }
+function rhythmStat(key){ if(!store.stats.byRhythm[key]) store.stats.byRhythm[key]={t:0,c:0}; return store.stats.byRhythm[key]; }
+function getQ(id){ for(var i=0;i<QUESTIONS.length;i++){ if(QUESTIONS[i].id===id) return QUESTIONS[i]; } return null; }
+function shuffle(a){ for(var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)); var t=a[i];a[i]=a[j];a[j]=t; } return a; }
+var RH_NAMES={nsr:'正常窦性心律',stach:'窦性心动过速',brady:'窦性心动过缓',pac:'房性早搏',pvc:'室性早搏',af:'心房颤动',afl:'心房扑动',svt:'室上速',vt:'室速',vf:'心室颤动','1st':'一度AVB','2d1':'二度Ⅰ型AVB','2d2':'二度Ⅱ型AVB','3rd':'三度AVB',lbbb:'左束支阻滞',rbbb:'右束支阻滞',stemi:'急性心梗(STEMI)',asys:'心搏停止'};
+
+// 练习会话
+var quizOrder=[], quizPos=0, quizMode='normal';
+// 考核会话
+var examOrder=[], examPos=0, examAnswers={}, examFlags={}, examTimerId=null, examEnded=false, examLeft=0;
+var letters=['A','B','C','D'];
+// ===== 题库 =====
+// diff: 1基础 / 2进阶 / 3高危
+var QUESTIONS=[
+  // ---------- 波形识别题 ----------
+  {id:'w1',type:'wave',key:'nsr',rhythm:'正常窦性心律',diff:1,
+   prompt:'请判断该心电图最可能的诊断。',
+   options:['正常窦性心律','心房颤动','窦性心动过速','一度房室传导阻滞'],answer:0,
+   recognize:'P 波规律出现，每个 P 波后跟随一个 QRS-T 波群，节律规整，频率约 75 次/分（60-100 次/分）；PR 间期 0.12-0.20s，QRS 波窄且形态正常。',
+   nursing:'正常节律，无需特殊处理。识别正常心电是判断各类异常的基础；护理记录中注明心率、节律即可。'},
+  {id:'w2',type:'wave',key:'stach',rhythm:'窦性心动过速',diff:1,
+   prompt:'请判断该心电图最可能的诊断。',
+   options:['室上性心动过速','窦性心动过速','心房扑动','室性心动过速'],answer:1,
+   recognize:'P-QRS-T 顺序正常、节律规整，频率约 120 次/分（>100 次/分），QRS 波窄。与室上速的关键区别：窦速每个 QRS 前都有明确 P 波，且频率一般 100-150 次/分。',
+   nursing:'多为生理性代偿（发热、疼痛、紧张、失血、缺氧等）。监测心率与病因，处理原发病因；若心率持续过快并伴症状，报告医生。'},
+  {id:'w3',type:'wave',key:'brady',rhythm:'窦性心动过缓',diff:1,
+   prompt:'请判断该心电图最可能的诊断。',
+   options:['三度房室传导阻滞','窦性心动过缓','二度房室传导阻滞','心房颤动'],answer:1,
+   recognize:'P-QRS-T 顺序正常、节律规整，频率约 45 次/分（<60 次/分），QRS 波窄。每个 P 波均下传，PR 间期正常，这是与房室传导阻滞鉴别的要点。',
+   nursing:'无症状者（如运动员、睡眠中）可观察；若心率过慢伴头晕、乏力、低血压，报告医生，遵医嘱使用阿托品，必要时备起搏。'},
+  {id:'w4',type:'wave',key:'pac',rhythm:'房性早搏',diff:2,
+   prompt:'请判断该心电图最可能的诊断。',
+   options:['房性早搏','室性早搏','窦性心动过缓','心房颤动'],answer:0,
+   recognize:'基础节律规整，其中一个 QRS 波提前出现，其前有形态略异的 P′波（本图 P′低矮），随后有不完全代偿间歇。QRS 波窄、形态正常——这是房早与室早的关键区别。',
+   nursing:'偶发房早多无意义，常见于疲劳、咖啡因、缺氧或电解质紊乱。评估并纠正诱因；频发或引发心悸明显时报告医生。'},
+  {id:'w5',type:'wave',key:'pvc',rhythm:'室性早搏',diff:2,
+   prompt:'请判断该心电图最可能的诊断。',
+   options:['房性早搏','室性早搏','房室传导阻滞','室上性心动过速'],answer:1,
+   recognize:'一个 QRS 波提前出现，宽大畸形（>0.12s），其前无相关 P 波，T 波与主波方向相反，后有完全代偿间歇。基础节律为正常窦律。',
+   nursing:'偶发室早可观察并评估诱因（缺血、电解质紊乱、低氧）；若频发、多源、成对或落在 T 波上（RonT），或伴胸痛晕厥，立即报告医生并持续心电监护。'},
+  {id:'w6',type:'wave',key:'af',rhythm:'心房颤动',diff:1,
+   prompt:'请判断该心电图最可能的诊断。',
+   options:['心房颤动','心房扑动','窦性心律不齐','多源性房性心动过速'],answer:0,
+   recognize:'P 波消失，代之以形态、振幅均不规则的细小 f 波；RR 间期绝对不齐，心室率快慢不等。QRS 波窄。',
+   nursing:'评估血流动力学与症状。稳定者通知医生，遵医嘱控制心室率（β受体阻滞剂/钙通道阻滞剂）；长期需评估卒中风险（CHA₂DS₂-VASc 评分）决定是否抗凝。监测栓塞体征。'},
+  {id:'w7',type:'wave',key:'afl',rhythm:'心房扑动',diff:2,
+   prompt:'请判断该心电图最可能的诊断。',
+   options:['心房颤动','心房扑动','室性心动过速','正常窦性心律'],answer:1,
+   recognize:'P 波消失，代之以规律的锯齿状 F 波（频率约 250-350 次/分），本图呈 2:1 传导，QRS 波规律出现、形态窄。F 波规律呈锯齿状是与房颤细颤波的关键区别。',
+   nursing:'评估心室率与症状。稳定者遵医嘱控制心室率；血流动力学不稳定时可考虑同步电复律。同房颤，需评估抗凝指征。'},
+  {id:'w8',type:'wave',key:'svt',rhythm:'室上性心动过速',diff:2,
+   prompt:'请判断该心电图最可能的诊断。',
+   options:['室性心动过速','心房颤动','室上性心动过速','窦性心动过速'],answer:2,
+   recognize:'QRS 波窄、节律绝对规整，频率约 180 次/分（150-250 次/分），P 波难以辨认（埋藏于 QRS/T 中）。窄 QRS + 快速整齐 = 室上速典型表现。',
+   nursing:'先评估血压、意识。稳定者可尝试刺激迷走神经（Valsalva 动作），通知医生，遵医嘱静脉推注腺苷；血流动力学不稳定者准备同步电复律。'},
+  {id:'w9',type:'wave',key:'vt',rhythm:'室性心动过速',diff:3,
+   prompt:'请判断该心电图最可能的诊断。',
+   options:['室性心动过速','室上性心动过速','心房扑动','左束支传导阻滞'],answer:0,
+   recognize:'连续 ≥3 个宽大畸形的 QRS 波（>0.12s），频率约 150 次/分（>100 次/分），节律相对规整，P 波与 QRS 分离，T 波方向与主波相反。',
+   nursing:'危险节律。立即评估脉搏与血压：无脉则按心搏骤停处理（CPR + 非同步除颤）；有脉但血流动力学不稳定，准备同步电复律；稳定者遵医嘱使用胺碘酮等抗心律失常药。持续监护，备好抢救车。'},
+  {id:'w10',type:'wave',key:'vf',rhythm:'心室颤动',diff:3,
+   prompt:'请判断该心电图最可能的诊断。',
+   options:['心室颤动','心房颤动','室性心动过速','心搏停止'],answer:0,
+   recognize:'P-QRS-T 波完全消失，代之以形态、振幅、频率均极不规则的粗颤波（本图为粗颤），无有效心排血量的电活动。',
+   nursing:'最危急节律之一。立即呼救、启动 CPR（胸外按压 100-120 次/分），尽快使用除颤仪（双相波 200J）非同步除颤，随后遵医嘱肾上腺素 1mg 静脉推注，每 3-5 分钟重复；查找并纠正可逆病因。'},
+  {id:'w11',type:'wave',key:'1st',rhythm:'一度房室传导阻滞',diff:2,
+   prompt:'请判断该心电图最可能的诊断。',
+   options:['一度房室传导阻滞','二度房室传导阻滞','窦性心动过缓','左束支传导阻滞'],answer:0,
+   recognize:'每个 P 波均能下传，QRS 波正常，但 PR 间期明显延长（>0.20s，本图约 0.32s）。节律规整，心率正常。',
+   nursing:'多为良性、可逆（药物、心肌炎、迷走张力增高等所致）。无症状者主要观察与监测；注意避免加重传导阻滞的药物（如 β 阻滞剂、维拉帕米、地高辛过量），定期复查心电图。'},
+  {id:'w12',type:'wave',key:'2d1',rhythm:'二度Ⅰ型（文氏）房室传导阻滞',diff:2,
+   prompt:'请判断该心电图最可能的诊断。',
+   options:['二度Ⅱ型房室传导阻滞','二度Ⅰ型（文氏）房室传导阻滞','三度房室传导阻滞','心房扑动'],answer:1,
+   recognize:'PR 间期逐个延长（本图 0.20s→0.26s→0.32s→0.38s），直至一个 P 波后 QRS 波脱落，此后 PR 间期又恢复最短值，周而复始（文氏周期）。QRS 波多窄。',
+   nursing:'多与迷走张力增高、药物或缺血有关，通常进展缓慢、风险相对较低。无症状者观察；有症状（头晕、低血压）遵医嘱阿托品，避免加重阻滞的药物，监测心率变化。'},
+  {id:'w13',type:'wave',key:'2d2',rhythm:'二度Ⅱ型（莫氏Ⅱ）房室传导阻滞',diff:3,
+   prompt:'请判断该心电图最可能的诊断。',
+   options:['二度Ⅰ型房室传导阻滞','二度Ⅱ型（莫氏Ⅱ）房室传导阻滞','三度房室传导阻滞','心房颤动'],answer:1,
+   recognize:'PR 间期固定不变，但间歇性出现 P 波后 QRS 波脱落（本图为 3:2 下传），阻滞位置多在希氏束以下。与文氏型的区别：PR 间期不延长。',
+   nursing:'较文氏型危险，易突然进展为三度阻滞。持续心电监护，备好阿托品与经皮起搏；若心率过慢或进展为高度阻滞，立即报告医生，准备临时起搏。'},
+  {id:'w14',type:'wave',key:'3rd',rhythm:'三度房室传导阻滞',diff:3,
+   prompt:'请判断该心电图最可能的诊断。',
+   options:['三度房室传导阻滞','二度Ⅱ型房室传导阻滞','窦性心动过缓','室性逸搏心律'],answer:0,
+   recognize:'心房与心室各自独立搏动：P 波规律出现（约 75 次/分），QRS 波以更慢的频率（约 36 次/分）规律出现，两者之间毫无固定关系（房室分离）。QRS 波宽大（逸搏心律）。',
+   nursing:'完全性阻滞，心室率慢、可致晕厥甚至心搏骤停（阿-斯综合征）。立即报告医生，持续监护；有症状者遵医嘱阿托品，准备经皮起搏/临时起搏，避免使用抑制房室传导的药物，备好抢救设备。'},
+  {id:'w15',type:'wave',key:'lbbb',rhythm:'左束支传导阻滞',diff:2,
+   prompt:'请判断该心电图最可能的诊断。',
+   options:['右束支传导阻滞','左束支传导阻滞','室性心动过速','急性心肌梗死'],answer:1,
+   recognize:'QRS 波增宽（≥0.12s），R 波宽大且顶端有切迹（本图 R 波上升支可见切迹），ST 段压低、T 波与主波方向相反（继发性改变）。',
+   nursing:'常见于冠心病、心肌病、高血压等器质性心脏病。已明确者随访原发病；新发 LBBB 伴胸痛需警惕急性心梗（新发 LBBB 是 STEMI 等危表现），立即行 12 导联心电图并报告医生。'},
+  {id:'w16',type:'wave',key:'rbbb',rhythm:'右束支传导阻滞',diff:2,
+   prompt:'请判断该心电图最可能的诊断。',
+   options:['右束支传导阻滞','左束支传导阻滞','室性心动过速','预激综合征'],answer:0,
+   recognize:'QRS 波增宽（≥0.12s），终末 S 波增宽、有切迹（V₁ 导联呈 rSR′ 型），本图 QRS 后段可见增宽顿挫的 S 波，ST-T 一般正常。',
+   nursing:'不完全性 RBBB 可见于健康人；完全性 RBBB 常见于右心负荷增加（肺心病、肺栓塞）、冠心病等。结合临床评估病因，监测原发病，无需针对阻滞本身特殊处理。'},
+  {id:'w17',type:'wave',key:'stemi',rhythm:'急性前壁 ST 段抬高型心肌梗死（STEMI）',diff:3,
+   prompt:'请判断该心电图最可能的诊断。',
+   options:['急性 ST 段抬高型心肌梗死','急性心包炎','早期复极综合征','左束支传导阻滞'],answer:0,
+   recognize:'相邻导联 ST 段弓背向上抬高（本图明显抬高并呈弓背形），T 波高尖，常伴对应导联 ST 段压低。本图表现符合急性前壁心梗的典型改变。',
+   nursing:'胸痛患者出现 ST 段抬高属危急信号。立即通知医生、行 12 导联心电图（10 分钟内），遵医嘱给氧、阿司匹林嚼服，启动胸痛中心/心梗绿色通道流程，建立静脉通路，持续监护，做好溶栓或急诊 PCI 准备。'},
+  {id:'w18',type:'wave',key:'asys',rhythm:'心搏停止（心室停搏）',diff:3,
+   prompt:'请判断该心电图最可能的诊断。',
+   options:['心搏停止','心室颤动','低电压窦性心律','电极脱落'],answer:0,
+   recognize:'心电活动完全消失，呈一条直线（无 P-QRS-T 波）。须先确认不是电极脱落或导联接触不良（观察患者、检查导联）。',
+   nursing:'立即呼救并启动 CPR（胸外按压 100-120 次/分），建立高级气道，遵医嘱肾上腺素 1mg 静脉推注、每 3-5 分钟重复，查找并纠正可逆病因（低氧、低血容量、高钾/低钾、酸中毒、低体温、张力性气胸、心包填塞、中毒、肺栓塞、心肌梗死）；备好气管插管与除颤仪。'},
+  // ---------- 临床情境题 ----------
+  {id:'c1',type:'case',key:'vf',rhythm:'心室颤动 · 抢救处理',diff:3,
+   prompt:'夜查房时，你发现患者突然意识丧失、四肢抽搐，心电监护显示粗大不规则颤动波形，无法测得血压。你的首要处理是？',
+   options:['立即呼救，启动 CPR 并尽快准备除颤','先测量血压确认后再处理','先做 12 导联心电图','继续观察 5 分钟看能否自行恢复'],answer:0,
+   recognize:'监护示宽大不规则的颤动波、意识丧失、无脉搏，符合心室颤动——致死性心律失常。',
+   nursing:'立即呼救并按心搏骤停处理：胸外按压 100-120 次/分、深度 5-6cm，尽快（3 分钟内）双相波 200J 非同步除颤；除颤后立即恢复按压，遵医嘱肾上腺素 1mg/3-5min。每耽误一分钟，存活率下降约 7-10%。'},
+  {id:'c2',type:'case',key:'svt',rhythm:'室上速 · 稳定型处理',diff:2,
+   prompt:'患者突发心悸来诊，神志清楚，血压 110/70mmHg。心电监护示 QRS 波窄、节律绝对规整，频率约 180 次/分。正确的处理是？',
+   options:['通知医生，先尝试刺激迷走神经（Valsalva 动作）','立即同步电复律','静脉推注阿托品','让患者自行休息观察'],answer:0,
+   recognize:'窄 QRS + 快速整齐（150-250 次/分）符合室上性心动过速；患者血流动力学稳定。',
+   nursing:'稳定型室上速首选刺激迷走神经（Valsalva 动作、冰水敷面等，需在监护下进行），无效时遵医嘱腺苷 6mg 快速静脉推注（随后快速冲管）；同步心电监护，警惕转为房颤或血压下降。若出现低血压、胸痛、心衰表现，才考虑同步电复律。'},
+  {id:'c3',type:'case',key:'vt',rhythm:'室速 · 不稳定型处理',diff:3,
+   prompt:'急性心肌梗死患者突发宽大畸形 QRS 波心动过速，心率约 160 次/分，血压降至 80/50mmHg，意识模糊。首选处理是？',
+   options:['立即同步电复律','再观察 5 分钟','静脉注射腺苷','让患者平卧继续观察'],answer:0,
+   recognize:'宽 QRS 快律 + 低血压 + 意识改变 = 血流动力学不稳定的室性心动过速。',
+   nursing:'不稳定室速首选同步电复律（100J 起，逐级递增）；无脉时立即按心搏骤停行非同步除颤。复律后维持监护，遵医嘱胺碘酮等药物，查找诱因（缺血、低钾等）。腺苷仅用于稳定型窄 QRS 心动过速，勿用。'},
+  {id:'c4',type:'case',key:'3rd',rhythm:'三度房室传导阻滞 · 处理',diff:3,
+   prompt:'患者主诉头晕、乏力、眼前发黑，心电图示 P 波与 QRS 波各自规律出现、互不相关，心室率约 36 次/分。正确的处理是？',
+   options:['立即报告医生，遵医嘱阿托品并准备经皮起搏','等医生查房再处理','给予硝酸甘油舌下含服','嘱患者大量饮水休息'],answer:0,
+   recognize:'房室分离 + 心室率极慢（20-40 次/分）= 三度房室传导阻滞，患者已有脑供血不足症状，有进展为阿-斯综合征的风险。',
+   nursing:'保持平卧、给氧、持续监护；遵医嘱阿托品 0.5-1mg 静注（效果有限时），立即准备经皮起搏/临时起搏；建立静脉通路，备好抢救车，避免延误——症状性三度阻滞是急症。硝酸甘油会加重低血压，禁用。'},
+  {id:'c5',type:'case',key:'brady',rhythm:'窦性心动过缓 · 无症状处理',diff:2,
+   prompt:'术后患者心电监护示心率约 45 次/分，节律规整，P-QRS-T 顺序正常，患者无头晕、乏力等不适，血压正常。正确的处理是？',
+   options:['密切观察心率与症状，记录并报告','立即静脉推注阿托品','立即准备经皮起搏','给予氧气吸入'],answer:0,
+   recognize:'P-QRS-T 正常、节律规整、心率 45 次/分 = 窦性心动过缓；患者无症状、血压正常，为稳定状态。',
+   nursing:'无症状的窦性心动过缓一般无需药物干预。监测心率、血压与症状变化，排查诱因（低温、镇静镇痛药、迷走刺激等）；若出现症状或心率进一步下降，再报告医生考虑阿托品。'},
+  {id:'c6',type:'case',key:'stemi',rhythm:'急性心梗 · 胸痛处理',diff:3,
+   prompt:'患者持续胸痛 30 分钟，心电图示相邻导联 ST 段弓背向上抬高。护士的首要处理是？',
+   options:['通知医生并尽快完成 12 导联心电图，启动心梗救治流程','等患者把症状描述完再处理','先给止痛药观察','先补液扩容'],answer:0,
+   recognize:'ST 段弓背抬高 + 持续胸痛 = 急性 STEMI，时间就是心肌。',
+   nursing:'立即报告医生，10 分钟内完成 12 导联心电图并重复描记，遵医嘱吸氧（SpO₂<90% 时）、阿司匹林 300mg 嚼服、建立双路静脉通路，启动胸痛中心流程（尽快再灌注：溶栓或急诊 PCI），持续心电监护并备好除颤仪，做好知情谈话与转运准备。'},
+  {id:'c7',type:'case',key:'af',rhythm:'心房颤动 · 评估处理',diff:3,
+   prompt:'老年患者心电监护示 P 波消失、RR 间期绝对不齐，心室率约 110 次/分，患者无明显不适，血压正常。护士应优先做什么？',
+   options:['评估心室率与卒中风险（通知医生，遵医嘱控制心室率）','立即非同步除颤','立即静脉推注肾上腺素','不处理，等患者不适再说'],answer:0,
+   recognize:'P 波消失 + RR 绝对不齐 = 心房颤动；心室率快但患者血流动力学稳定。',
+   nursing:'房颤处理关键是「先评估稳定性」：稳定者控制心室率（β受体阻滞剂/钙通道阻滞剂），评估栓塞风险（CHA₂DS₂-VASc）决定抗凝方案，监测血压与栓塞体征；出现低血压、心衰、胸痛等不稳定表现时才考虑同步电复律。除颤与肾上腺素均不适合当前情况。'}
+];
+// ===== 波形引擎 =====
+// 坐标系：viewBox 300x110，1 单位 = 0.5mm；按 25mm/s 纸速，6 秒 = 300 单位；基线 y=55
+(function(){
+var W=300, H=110, BASE=55;
+var C_GRID_L='#E7EDF4', C_GRID_D='#C9D5E2', C_TRACE='#D63031';
+
+function grid(){
+  var s='';
+  for(var x=2;x<W;x+=2){
+    var big=x%10===0;
+    s+='<line x1="'+x+'" y1="0" x2="'+x+'" y2="'+H+'" stroke="'+(big?C_GRID_D:C_GRID_L)+'" stroke-width="'+(big?0.6:0.3)+'"/>';
+  }
+  for(var y=2;y<H;y+=2){
+    var big2=y%10===0;
+    s+='<line x1="0" y1="'+y+'" x2="'+W+'" y2="'+y+'" stroke="'+(big2?C_GRID_D:C_GRID_L)+'" stroke-width="'+(big2?0.6:0.3)+'"/>';
+  }
+  s+='<line x1="0" y1="'+BASE+'" x2="'+W+'" y2="'+BASE+'" stroke="#B9C6D6" stroke-width="0.8"/>';
+  return s;
+}
+
+// P 波（圆丘，ph>0 向上）
+function pWave(t0, pw, ph){
+  var h=BASE-ph;
+  return 'M '+t0+','+BASE+' C '+(t0+pw*0.3)+','+h+' '+(t0+pw*0.7)+','+h+' '+(t0+pw)+','+BASE;
+}
+
+// 单个完整心搏 P-QRS-T（或裁剪部分）
+function beat(t0,o){
+  o=o||{};
+  var pr=o.pr||8, qrs=o.qrs||4;
+  var qh=o.qh||3, rh=o.rh||20, sh=o.sh||4;
+  var pw=o.pw||5, ph=o.ph||3;
+  var st=o.st||0, stb=o.stb||0;
+  var th=o.th||5, tw=o.tw||8;
+  var rnotch=!!o.rnotch, wideS=o.wideS||0;
+  var noP=!!o.noP, noT=!!o.noT;
+  var tQ=noP?t0:t0+pr;
+  var d='';
+  if(!noP) d+=pWave(t0,pw,ph);
+  d+='M '+tQ+','+BASE+' L '+(tQ+qrs*0.25)+','+(BASE+qh)+' L '+(tQ+qrs*0.52)+','+(BASE-rh);
+  if(rnotch){ d+=' L '+(tQ+qrs*0.62)+','+(BASE-rh*0.72)+' L '+(tQ+qrs*0.72)+','+(BASE-rh); }
+  d+=' L '+(tQ+qrs*0.8)+','+(BASE+sh);
+  if(wideS>0){ d+=' L '+(tQ+qrs*0.87)+','+(BASE+sh*0.5)+' L '+(tQ+qrs*0.93)+','+(BASE+sh*1.2)+' L '+(tQ+qrs)+','+BASE; }
+  else { d+=' L '+(tQ+qrs)+','+BASE; }
+  var tJ=tQ+qrs, tT0=tJ+4, tT1=tT0+tw;
+  if(st>0){
+    var jb=BASE-st*0.3, tb=BASE-st;
+    d+=' M '+tJ+','+jb+' C '+(tJ+1.5)+','+(tb-3-stb)+' '+(tJ+3)+','+tb+' '+tT0+','+tb;
+  }else if(st<0){
+    var dn=-st;
+    d+=' M '+tJ+','+(BASE+dn*0.3)+' L '+tT0+','+(BASE+dn);
+  }else{
+    d+=' M '+tJ+','+BASE+' L '+tT0+','+BASE;
+  }
+  if(!noT){
+    if(th>0){ d+=' C '+(tT0+tw*0.35)+','+(BASE-th)+' '+(tT0+tw*0.65)+','+(BASE-th)+' '+tT1+','+BASE; }
+    else{ d+=' C '+(tT0+tw*0.35)+','+(BASE-th)+' '+(tT0+tw*0.65)+','+(BASE-th)+' '+tT1+','+BASE; }
+  }
+  d+=' M '+tT1+','+BASE+' L '+(tT1+2)+','+BASE;
+  return d;
+}
+function beatEnd(o){ o=o||{}; var pr=o.noP?0:(o.pr||8), qrs=o.qrs||4, tw=o.tw||8; return pr+qrs+4+tw+2; }
+
+// 基线锯齿（AF 细颤 / AFL 大锯齿）
+function fWave(x0,x1,period,amp){
+  var d='M '+x0+','+BASE;
+  var up=true;
+  for(var x=x0+period/2;x<x1;x+=period/2){
+    d+=' L '+x.toFixed(1)+','+(BASE+(up?-amp:amp));
+    up=!up;
+  }
+  return d;
+}
+
+// 室颤：多频率正弦叠加
+function vfPath(){
+  var d='', first=true;
+  for(var x=0;x<=W;x+=1.5){
+    var y=BASE+Math.sin(x*0.5)*8+Math.sin(x*0.18+2.1)*6+Math.sin(x*1.6+0.7)*3.5+Math.sin(x*0.85+4)*2.5;
+    d+=(first?'M '+x.toFixed(1)+','+y.toFixed(1):' L '+x.toFixed(1)+','+y.toFixed(1));
+    first=false;
+  }
+  return d;
+}
+
+function rhythmPath(key){
+  var d='';
+  var i,t,rr;
+  switch(key){
+    case 'nsr':      // 正常窦性心律 75bpm
+      rr=3000/75;
+      for(t=0;t<W;t+=rr){ d+=beat(t,{}); d+=' M '+(t+beatEnd({}))+','+BASE+' L '+Math.min(t+rr,W)+','+BASE; }
+      break;
+    case 'stach':    // 窦性心动过速 120bpm
+      rr=3000/120;
+      for(t=0;t<W;t+=rr){ d+=beat(t,{pr:7,tw:6}); }
+      break;
+    case 'brady':    // 窦性心动过缓 45bpm
+      rr=3000/45;
+      for(t=0;t<W;t+=rr){ d+=beat(t,{}); d+=' M '+(t+beatEnd({}))+','+BASE+' L '+Math.min(t+rr,W)+','+BASE; }
+      break;
+    case 'pac':      // 房性早搏：基础75，第3个提前且P'低矮
+      i=0;t=0;
+      while(t<W-20){
+        if(i===3){ d+=beat(t,{pr:8,ph:2}); t+=27; }
+        else { d+=beat(t,{}); t+=40; }
+        i++;
+      }
+      break;
+    case 'pvc':      // 室性早搏：基础75，第3个提前宽大无P
+      i=0;t=0;
+      while(t<W-20){
+        if(i===3){ d+=beat(t,{noP:true,qrs:7,rh:23,sh:6,th:-8,tw:9}); t+=30; }
+        else { d+=beat(t,{}); t+=40; }
+        i++;
+      }
+      break;
+    case 'af':       // 心房颤动：RR绝对不齐，无P，f波
+      d+=fWave(0,W,9,1.5);
+      t=6;
+      while(t<W-20){ var step=26+Math.random()*20; d+=beat(t,{noP:true,qrs:4,th:5,tw:8}); t+=step; }
+      break;
+    case 'afl':      // 心房扑动：锯齿F波，2:1传导
+      d+=fWave(0,W,10,4.5);
+      for(t=10;t<W;t+=20){ d+=beat(t,{noP:true,qrs:4,th:5,tw:8}); }
+      break;
+    case 'svt':      // 室上速：窄QRS快且整齐，180bpm
+      rr=3000/180;
+      for(t=2;t<W-16;t+=rr){ d+=beat(t,{noP:true,qrs:4,th:5,tw:6}); }
+      break;
+    case 'vt':       // 室速：宽大QRS整齐，150bpm，T反向
+      rr=20;
+      for(t=3;t<W;t+=rr){ d+=beat(t,{noP:true,qrs:7,rh:21,th:-7,tw:7}); }
+      break;
+    case 'vf':       // 心室颤动
+      d+=vfPath();
+      break;
+    case '1st':      // 一度AVB：PR>0.20s
+      rr=3000/70;
+      for(t=0;t<W;t+=rr){ d+=beat(t,{pr:16,tw:8}); }
+      break;
+    case '2d1':      // 二度I型文氏：PR逐渐延长→脱落
+      var prs=[10,13,16,19], tP=4; i=0;
+      while(tP<W-20){
+        if(i<4){ d+=beat(tP,{pr:prs[i],qrs:4,th:5,tw:8}); }
+        else { d+=pWave(tP,5,3); d+=' M '+(tP+5)+','+BASE+' L '+(tP+36)+','+BASE; }
+        i++; if(i>4){i=0;}
+        tP+=36;
+      }
+      break;
+    case '2d2':      // 二度II型莫氏II：PR固定，间歇脱落(3:2)
+      tP=4; i=0;
+      while(tP<W-18){
+        if(i<2){ d+=beat(tP,{pr:10,qrs:4,th:5,tw:8}); }
+        else { d+=pWave(tP,5,3); d+=' M '+(tP+5)+','+BASE+' L '+(tP+30)+','+BASE; }
+        i++; if(i>2){i=0;}
+        tP+=30;
+      }
+      break;
+    case '3rd':      // 三度AVB：P与QRS各自规律、互不相关
+      for(t=2;t<W;t+=40){ d+=pWave(t,5,3); }
+      for(t=25;t<W;t+=83){ d+=beat(t,{noP:true,qrs:7,rh:20,th:6,tw:8}); }
+      break;
+    case 'lbbb':     // 左束支阻滞：QRS宽大、R切迹、ST压低T倒置
+      rr=3000/75;
+      for(t=0;t<W;t+=rr){ d+=beat(t,{pr:8,qrs:8,rh:20,sh:5,st:-2,th:-7,tw:8,rnotch:true}); }
+      break;
+    case 'rbbb':     // 右束支阻滞：QRS宽、终末S增宽
+      rr=3000/75;
+      for(t=0;t<W;t+=rr){ d+=beat(t,{pr:8,qrs:7,rh:19,sh:4,wideS:2,th:5,tw:8}); }
+      break;
+    case 'stemi':    // 急性前壁STEMI：ST弓背抬高、T高尖
+      rr=3000/70;
+      for(t=0;t<W;t+=rr){ d+=beat(t,{pr:8,qrs:4,st:7,stb:2,th:9,tw:7}); }
+      break;
+    case 'asys':     // 心搏停止：直线
+      d+='M 0,54.5 L '+W+',54.5';
+      break;
+    default:
+      d+='M 0,'+BASE+' L '+W+','+BASE;
+  }
+  return d;
+}
+
+// 渲染完整 SVG（网格+波形）
+function ekgSVG(key){
+  var d=rhythmPath(key);
+  return '<g>'+grid()+'<path d="'+d+'" fill="none" stroke="'+C_TRACE+'" stroke-width="1.15" stroke-linejoin="round" stroke-linecap="round"/></g>';
+}
+
+// 顶栏监护条循环波形（4 个 QRS 周期，平移 40 无缝循环）
+function monitorTrace(){
+  var d='';
+  for(var t=0;t<=160;t+=40){
+    d+='M '+(t+4)+',22 L '+(t+6)+',22 L '+(t+7)+',13 L '+(t+8)+',10 L '+(t+9)+',14 L '+(t+10)+',25 L '+(t+12)+',22 L '+(t+14)+',22 L '+(t+22)+',19 L '+(t+26)+',24 L '+(t+30)+',22 L '+(t+40)+',22';
+  }
+  return d;
+}
+window.__ekg={ekgSVG:ekgSVG,monitorTrace:monitorTrace};
+})();
+// ===== 渲染 =====
+var $=function(id){return document.getElementById(id)};
+
+function paintEkg(svgEl,key){
+  svgEl.innerHTML='<svg viewBox="0 0 300 110" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block" role="img" aria-label="心电图波形">'+window.__ekg.ekgSVG(key)+'</svg>';
+}
+function diffName(d){ return d===1?'基础':(d===2?'进阶':'高危'); }
+
+// ---------- 练习 ----------
+function renderQuiz(){
+  if(quizOrder.length===0) return;
+  var q=quizOrder[quizPos];
+  $('quizCount').textContent=(quizPos+1)+' / '+quizOrder.length;
+  $('quizType').textContent=q.type==='wave'?'波形识别':'临床情境';
+  $('quizType').className='tag '+(q.type==='wave'?'wave':'case');
+  $('quizDiff').textContent=diffName(q.diff);
+  $('quizBar').style.width=(quizPos/(quizOrder.length)*100)+'%';
+  $('ekgLabel').textContent='ECG · 6 秒 · '+(q.type==='wave'?'波形识别':'临床情境');
+  paintEkg($('ekgSvg'), q.key);
+  $('quizPrompt').textContent=q.prompt;
+  var html='';
+  q.options.forEach(function(op,i){
+    html+='<button class="option" data-i="'+i+'"><span class="opt-key">'+letters[i]+'</span><span>'+op+'</span></button>';
+  });
+  $('quizOptions').innerHTML=html;
+  var btns=$('quizOptions').querySelectorAll('.option');
+  for(var k=0;k<btns.length;k++){
+    (function(btn){ btn.addEventListener('click',function(){ answerQuiz(parseInt(btn.getAttribute('data-i'),10)); }); })(btns[k]);
+  }
+  $('quizFeedback').className='feedback hidden';
+  $('btnReview').classList.add('hidden');
+  $('btnNext').disabled=true;
+  $('btnNext').textContent=quizPos===quizOrder.length-1?'完成本轮':'下一题';
+}
+
+function answerQuiz(i){
+  var q=quizOrder[quizPos];
+  if(!q||!$('btnNext').disabled) return;
+  var ok=(i===q.answer);
+  $('quizFeedback').classList.remove('hidden');
+  $('quizFeedback').className='feedback '+(ok?'ok':'no');
+  $('fbIco').textContent=ok?'✓':'✕';
+  $('fbTitle').textContent=ok?'回答正确':'回答错误';
+  $('fbExplain').innerHTML='<span class="hl">识别要点：</span>'+q.recognize;
+  $('fbNote').innerHTML='<b>护理措施：</b>'+q.nursing;
+  var btns=$('quizOptions').querySelectorAll('.option');
+  for(var k=0;k<btns.length;k++){
+    btns[k].disabled=true;
+    var idx=parseInt(btns[k].getAttribute('data-i'),10);
+    if(idx===q.answer) btns[k].classList.add('correct');
+    if(idx===i&&!ok) btns[k].classList.add('wrong');
+  }
+  store.stats.total++; if(ok) store.stats.correct++;
+  var rs=rhythmStat(q.key); rs.t++; if(ok) rs.c++;
+  if(!ok){
+    if(store.wrong.indexOf(q.id)===-1) store.wrong.push(q.id);
+    $('btnReview').classList.remove('hidden');
+  }else if(quizMode==='wrong'){
+    var wi=store.wrong.indexOf(q.id); if(wi>-1){ store.wrong.splice(wi,1); }
+  }
+  updateBadge(); save();
+  $('btnNext').disabled=false;
+}
+
+function nextQuiz(){
+  if(quizPos<quizOrder.length-1){ quizPos++; renderQuiz(); }
+  else{
+    if(quizMode==='wrong'&&store.wrong.length>0){ quizOrder=shuffle(store.wrong.map(getQ).filter(Boolean)); quizPos=0; renderQuiz(); }
+    else if(quizMode==='wrong'&&store.wrong.length===0){ goMode('wrong'); }
+    else{ quizOrder=shuffle(QUESTIONS.slice()); quizPos=0; renderQuiz(); }
+  }
+}
+
+// ---------- 考核 ----------
+function fmtTime(s){ var m=Math.floor(s/60),ss=s%60; return (m<10?'0':'')+m+':'+(ss<10?'0':'')+ss; }
+function startExam(){
+  examOrder=shuffle(QUESTIONS.slice()).slice(0,10);
+  examPos=0; examAnswers={}; examFlags={}; examEnded=false;
+  $('examTotal').textContent=examOrder.length;
+  $('examBody').classList.remove('hidden');
+  $('examReport').classList.add('hidden');
+  startTimer();
+  renderExam();
+}
+function startTimer(seconds){
+  if(examTimerId) clearInterval(examTimerId);
+  examLeft=(typeof seconds==='number')?seconds:examOrder.length*45;
+  $('examTimer').className='exam-timer';
+  $('examTimer').textContent=fmtTime(examLeft);
+  examTimerId=setInterval(function(){
+    examLeft--;
+    if(examLeft<=0){ $('examTimer').textContent='00:00'; submitExam(true); return; }
+    $('examTimer').textContent=fmtTime(examLeft);
+    $('examTimer').className='exam-timer'+(examLeft<=60?' low':'');
+  },1000);
+}
+function renderExam(){
+  var q=examOrder[examPos];
+  if(!q) return;
+  $('examCount').textContent=examPos+1;
+  $('examDone').textContent=Object.keys(examAnswers).length;
+  $('examEkgLabel').textContent='ECG · 6 秒 · 第 '+(examPos+1)+' / '+examOrder.length+' 题';
+  paintEkg($('examEkgSvg'), q.key);
+  $('examPrompt').textContent=q.prompt;
+  var html='';
+  q.options.forEach(function(op,i){
+    var sel=(examAnswers[examPos]===i)?' selected':'';
+    html+='<button class="option'+sel+'" data-i="'+i+'"><span class="opt-key">'+letters[i]+'</span><span>'+op+'</span></button>';
+  });
+  $('examOptions').innerHTML=html;
+  var btns=$('examOptions').querySelectorAll('.option');
+  for(var k=0;k<btns.length;k++){
+    (function(btn){ btn.addEventListener('click',function(){ examPick(parseInt(btn.getAttribute('data-i'),10)); }); })(btns[k]);
+  }
+  $('btnFlag').textContent=examFlags[examPos]?'已标记':'标记待定';
+  $('btnFlag').className='flag-btn'+(examFlags[examPos]?' on':'');
+  $('btnPrevExam').disabled=(examPos===0);
+  $('btnNextExam').textContent=examPos===examOrder.length-1?'最后一题':'下一题';
+}
+function examPick(i){
+  if(examEnded) return;
+  if(examAnswers[examPos]===i) delete examAnswers[examPos];
+  else examAnswers[examPos]=i;
+  renderExam();
+}
+function submitExam(auto){
+  if(examEnded) return;
+  if(!auto){ if(!confirm('确认交卷？未作答的题目将按答错计分。')) return; }
+  examEnded=true;
+  if(examTimerId){ clearInterval(examTimerId); examTimerId=null; }
+  var correct=0;
+  for(var i=0;i<examOrder.length;i++){
+    var q=examOrder[i];
+    var ok=(examAnswers[i]===q.answer);
+    if(ok) correct++;
+    store.stats.total++;
+    var rs=rhythmStat(q.key); rs.t++; if(ok) rs.c++;
+    if(!ok && store.wrong.indexOf(q.id)===-1) store.wrong.push(q.id);
+  }
+  var score=Math.round(correct/examOrder.length*100);
+  var now=new Date();
+  store.history.unshift({date:(now.getMonth()+1)+'/'+now.getDate()+' '+(now.getHours()<10?'0':'')+now.getHours()+':'+(now.getMinutes()<10?'0':'')+now.getMinutes(),score:score,total:examOrder.length,correct:correct});
+  if(store.history.length>10) store.history.length=10;
+  store.stats.correct+=correct;
+  updateBadge(); save();
+  $('examBody').classList.add('hidden');
+  $('examReport').classList.remove('hidden');
+  var verdict,cls;
+  if(score>=90){ verdict='优秀，掌握良好'; cls='verdict-pass'; }
+  else if(score>=70){ verdict='良好，仍有提升空间'; cls='verdict-mid'; }
+  else if(score>=60){ verdict='及格线附近，建议回看错题'; cls='verdict-mid'; }
+  else{ verdict='未通过，请复习错题后重考'; cls='verdict-fail'; }
+  $('reportHero').innerHTML=
+    '<div class="report-score" style="--p:'+score+'"><span class="num">'+score+'</span><span class="lbl">得分</span></div>'+
+    '<div class="report-meta">'+
+      '<div class="row"><span>作答题目</span><b>'+examOrder.length+' 题</b></div>'+
+      '<div class="row"><span>答对</span><b>'+correct+' 题</b></div>'+
+      '<div class="row"><span>答错</span><b>'+(examOrder.length-correct)+' 题</b></div>'+
+      '<div class="row"><span>用时</span><b>'+(auto?'时间到自动交卷':'手动交卷')+'</b></div>'+
+      '<div class="report-verdict '+cls+'">'+verdict+'</div>'+
+    '</div>';
+  var lh='';
+  for(var j=0;j<examOrder.length;j++){
+    var qj=examOrder[j], okj=(examAnswers[j]===qj.answer);
+    var myAns = (examAnswers[j]===undefined)?'未作答':letters[examAnswers[j]]+' '+qj.options[examAnswers[j]];
+    var rightAns=letters[qj.answer]+' '+qj.options[qj.answer];
+    lh+='<div class="r-item"><span class="r-mark '+(okj?'ok':'no')+'">'+(okj?'✓':'✕')+'</span>'+
+      '<div class="r-body"><div class="rhythm">'+(j+1)+'. '+qj.rhythm+'</div>'+
+      '<div class="ans">你的答案：<b class="'+(okj?'ok':'no')+'">'+myAns+'</b> · 正确答案：<b class="ok">'+rightAns+'</b></div></div></div>';
+  }
+  $('reportList').innerHTML=lh;
+}
+
+// ---------- 错题 ----------
+function renderWrong(){
+  var empty=$('wrongEmpty'), list=$('wrongList');
+  if(store.wrong.length===0){
+    empty.classList.remove('hidden');
+    list.classList.add('hidden');
+    $('btnReWrong').classList.add('hidden');
+    $('btnClearWrong').classList.add('hidden');
+    $('wrongActions').classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+  list.classList.remove('hidden');
+  $('btnReWrong').classList.remove('hidden');
+  $('btnClearWrong').classList.remove('hidden');
+  var html='';
+  store.wrong.forEach(function(id){
+    var q=getQ(id);
+    if(!q) return;
+    html+='<div class="w-item"><div class="w-info"><div class="rhythm">'+q.rhythm+'</div>'+
+      '<div class="qtype">'+(q.type==='wave'?'波形识别':'临床情境')+' · '+diffName(q.diff)+'</div></div>'+
+      '<div class="w-act"><button class="btn btn-ghost" data-act="redo" data-id="'+id+'">重练</button>'+
+      '<button class="btn btn-ghost" data-act="rm" data-id="'+id+'">移除</button></div></div>';
+  });
+  list.innerHTML=html;
+  var btns=list.querySelectorAll('button');
+  for(var k=0;k<btns.length;k++){
+    (function(btn){
+      btn.addEventListener('click',function(){
+        var act=btn.getAttribute('data-act'), id=btn.getAttribute('data-id');
+        if(act==='rm'){
+          var wi=store.wrong.indexOf(id); if(wi>-1){ store.wrong.splice(wi,1); save(); updateBadge(); renderWrong(); }
+        }else if(act==='redo'){
+          var q=getQ(id);
+          quizMode='wrong'; quizOrder=[q]; quizPos=0; renderQuiz(); goMode('quiz');
+        }
+      });
+    })(btns[k]);
+  }
+}
+
+// ---------- 统计 ----------
+function renderStats(){
+  var total=store.stats.total, correct=store.stats.correct;
+  var rate= total?Math.round(correct/total*100):0;
+  $('statsGrid').innerHTML=
+    '<div class="stat-cell"><div class="v">'+total+'</div><div class="k">累计答题</div></div>'+
+    '<div class="stat-cell"><div class="v">'+correct+'</div><div class="k">累计答对</div></div>'+
+    '<div class="stat-cell"><div class="v">'+rate+'<small>%</small></div><div class="k">综合正确率</div></div>'+
+    '<div class="stat-cell"><div class="v">'+store.wrong.length+'</div><div class="k">当前错题</div></div>';
+  var rows=[];
+  Object.keys(store.stats.byRhythm).forEach(function(k){
+    var s=store.stats.byRhythm[k];
+    if(!s.t) return;
+    rows.push({name:(RH_NAMES[k]||k),t:s.t,c:s.c,rate:Math.round(s.c/s.t*100)});
+  });
+  rows.sort(function(a,b){ return b.t-a.t; });
+  var html='';
+  if(rows.length===0){
+    html='<div class="empty-state" style="padding:20px"><p>暂无作答数据，先去练习吧。</p></div>';
+  }else{
+    rows.forEach(function(r){
+      html+='<div class="rs-row"><span class="rs-name">'+r.name+'</span>'+
+        '<div class="rs-track"><div class="rs-bar" style="width:'+r.rate+'%"></div></div>'+
+        '<span class="rs-num">'+r.rate+'% ('+r.c+'/'+r.t+')</span></div>';
+    });
+  }
+  $('rhythmStats').innerHTML=html;
+  var hh='';
+  if(store.history.length===0){
+    hh='<div class="empty-state" style="padding:20px"><p>暂无考核记录，去考核一次吧。</p></div>';
+  }else{
+    store.history.forEach(function(h){
+      hh+='<div class="h-row"><span class="h-date">'+h.date+'</span>'+
+        '<span class="h-score">'+h.score+'分</span>'+
+        '<span class="h-correct">'+h.correct+'/'+h.total+' 正确</span>'+
+        '<div class="h-bar"><i style="width:'+h.score+'%"></i></div></div>';
+    });
+  }
+  $('examHistory').innerHTML=hh;
+}
+
+function updateBadge(){
+  var b=$('wrongBadge');
+  if(store.wrong.length>0){ b.textContent=store.wrong.length; b.classList.remove('hidden'); }
+  else b.classList.add('hidden');
+}
+// ===== 交互与初始化 =====
+var MODE_VIEWS={quiz:'view-quiz',exam:'view-exam',wrong:'view-wrong',stats:'view-stats'};
+function goMode(m){
+  if(m!=='exam'&&examTimerId){ clearInterval(examTimerId); examTimerId=null; }
+  Object.keys(MODE_VIEWS).forEach(function(k){ $('view-'+k).classList.add('hidden'); });
+  $('view-'+m).classList.remove('hidden');
+  var btns=$('modeNav').querySelectorAll('.mode-btn');
+  for(var i=0;i<btns.length;i++){ btns[i].classList.toggle('active', btns[i].getAttribute('data-mode')===m); }
+  if(m==='quiz'&&quizOrder.length===0){ quizMode='normal'; quizOrder=shuffle(QUESTIONS.slice()); quizPos=0; renderQuiz(); }
+  if(m==='exam'){ if(!examOrder.length||examEnded){ startExam(); } else { if(!examTimerId) startTimer(examLeft); renderExam(); } }
+  if(m==='wrong'){ renderWrong(); }
+  if(m==='stats'){ renderStats(); }
+}
+
+function init(){
+  // 顶栏监护波形 + 无缝滚动
+  var st=document.createElement('style');
+  st.textContent='@keyframes mwave{from{transform:translateX(0)}to{transform:translateX(-40px)}}';
+  document.head.appendChild(st);
+  var mw=$('monitorWave');
+  mw.innerHTML='<svg viewBox="0 0 160 44" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;animation:mwave 1.5s linear infinite">'+
+    '<path d="'+window.__ekg.monitorTrace()+'" fill="none" stroke="#3DDC84" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/></svg>'+
+    '<div class="scan-line"></div>';
+  // 模式导航
+  var navBtns=$('modeNav').querySelectorAll('.mode-btn');
+  for(var i=0;i<navBtns.length;i++){
+    (function(btn){ btn.addEventListener('click',function(){ goMode(btn.getAttribute('data-mode')); }); })(navBtns[i]);
+  }
+  // 练习
+  $('btnNext').addEventListener('click',nextQuiz);
+  $('btnReview').addEventListener('click',function(){ goMode('wrong'); });
+  // 考核
+  $('btnPrevExam').addEventListener('click',function(){ if(examPos>0){ examPos--; renderExam(); } });
+  $('btnNextExam').addEventListener('click',function(){ if(examPos<examOrder.length-1){ examPos++; renderExam(); } });
+  $('btnFlag').addEventListener('click',function(){
+    if(examEnded) return;
+    if(examFlags[examPos]) delete examFlags[examPos]; else examFlags[examPos]=true;
+    renderExam();
+  });
+  $('btnSubmit').addEventListener('click',function(){ submitExam(false); });
+  $('btnRetryExam').addEventListener('click',startExam);
+  $('btnBackQuiz').addEventListener('click',function(){ quizMode='normal'; quizOrder=shuffle(QUESTIONS.slice()); quizPos=0; renderQuiz(); goMode('quiz'); });
+  // 错题
+  $('btnReWrong').addEventListener('click',function(){
+    if(!store.wrong.length) return;
+    quizMode='wrong'; quizOrder=shuffle(store.wrong.map(getQ).filter(Boolean)); quizPos=0; renderQuiz(); goMode('quiz');
+  });
+  $('btnClearWrong').addEventListener('click',function(){
+    if(!store.wrong.length) return;
+    if(confirm('确认清空全部 '+store.wrong.length+' 道错题记录？')){
+      store.wrong=[]; save(); updateBadge(); renderWrong();
+    }
+  });
+  updateBadge();
+  quizMode='normal'; quizOrder=shuffle(QUESTIONS.slice()); quizPos=0; renderQuiz();
+}
+document.addEventListener('DOMContentLoaded',init);
+</script>
+</body>
+</html>
